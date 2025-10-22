@@ -37,7 +37,3 @@ colored = "2.0"
 dialoguer = "0.11"
 tabled = "0.15"
 regex = "1.0"
-openssl = { version = "0.10", optional = true }
-
-[features]
-vendored-openssl = ["openssl?/vendored"]
