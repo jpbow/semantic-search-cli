@@ -157,3 +157,13 @@ Some files may fail to convert due to:
 - Unsupported content
 
 The tool will skip failed conversions and continue processing other files.
+
+## Releases
+
+```bash
+# Tag release
+git tag -a 0.2.0 -m "Message"
+
+# Push tag and CI does the rest
+git push --tags
+```
