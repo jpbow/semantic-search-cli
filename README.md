@@ -24,6 +24,15 @@ A simple command-line tool for crawling directories, converting documents to mar
 - Qdrant vector database running locally or remotely
 - OpenAI API key (or compatible API like Google Gemini)
 
+### System Dependencies (Ubuntu/Debian)
+
+Install required system packages:
+
+```bash
+sudo apt update
+sudo apt install -y libssl-dev pkg-config
+```
+
 ## Installation
 
 1. Clone the repository:

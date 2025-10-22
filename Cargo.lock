@@ -3637,7 +3637,6 @@ dependencies = [
  "markitdown",
  "md5",
  "openssl",
- "pkg-config",
  "qdrant-client",
  "regex",
  "reqwest 0.11.27",
