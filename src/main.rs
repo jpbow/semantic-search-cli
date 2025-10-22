@@ -292,8 +292,10 @@ async fn main() {
     ui.print_section("Initializing AI Models");
     let init_spinner = ui.show_loading("Loading embedding models...");
 
+    let qdrant_url = env::var("QDRANT_URL").unwrap_or("http://localhost:6334".to_string());
+
     // Initialize Qdrant client
-    let vector_store = match qdrant_client::QdrantVectorStore::new("http://localhost:6334").await {
+    let vector_store = match qdrant_client::QdrantVectorStore::new(&qdrant_url).await {
         Ok(store) => {
             init_spinner.finish_and_clear();
             ui.print_success("Connected to Qdrant vector database");
@@ -302,7 +304,7 @@ async fn main() {
         Err(e) => {
             init_spinner.finish_and_clear();
             ui.print_error(&format!("Failed to connect to Qdrant: {}", e));
-            ui.print_error("Make sure Qdrant is running on http://localhost:6334");
+            ui.print_error(&format!("Make sure Qdrant is running on {}", qdrant_url));
             std::process::exit(1);
         }
     };

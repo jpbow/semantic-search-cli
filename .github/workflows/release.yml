@@ -1,0 +1,321 @@
+name: Release
+
+permissions:
+    contents: write
+
+on:
+    push:
+        tags:
+            - "[0-9]+.[0-9]+.[0-9]+"
+
+env:
+    CARGO_TERM_COLOR: always
+    RUST_BACKTRACE: 1
+
+jobs:
+    create-release:
+        name: Create GitHub Release
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Verify tag matches Cargo.toml version
+              run: |
+                  cargo_version=$(grep -m1 "^version" Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+                  tag_version="${GITHUB_REF#refs/tags/}"
+                  if [ "$cargo_version" != "$tag_version" ]; then
+                    echo "Error: Tag version ($tag_version) doesn't match Cargo.toml version ($cargo_version)"
+                    exit 1
+                  fi
+
+            - name: Create GitHub Release
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  # Check if release already exists
+                  if gh release view "${{ github.ref_name }}" >/dev/null 2>&1; then
+                    echo "Release ${{ github.ref_name }} already exists, skipping creation"
+                  else
+                    gh release create "${{ github.ref_name }}" \
+                      --title "Release ${{ github.ref_name }}" \
+                      --draft \
+                      --generate-notes
+                  fi
+
+    build-release:
+        name: Build release binary
+        needs: create-release
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    # Linux builds
+                    - build: linux-x86_64
+                      os: ubuntu-latest
+                      target: x86_64-unknown-linux-gnu
+                      use-cross: false
+
+                    # macOS builds
+                    - build: macos-x86_64
+                      os: macos-latest
+                      target: x86_64-apple-darwin
+                      use-cross: false
+
+                    - build: macos-aarch64
+                      os: macos-latest
+                      target: aarch64-apple-darwin
+                      use-cross: false
+
+                    # Windows builds
+                    - build: windows-x86_64-msvc
+                      os: windows-latest
+                      target: x86_64-pc-windows-msvc
+                      use-cross: false
+
+                    - build: windows-aarch64
+                      os: windows-latest
+                      target: aarch64-pc-windows-msvc
+                      use-cross: false
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+              with:
+                  targets: ${{ matrix.target }}
+
+            - name: Install build dependencies (Ubuntu)
+              if: matrix.os == 'ubuntu-latest' && !matrix.use-cross
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y pkg-config libssl-dev perl make
+
+            - name: Install build dependencies (Windows)
+              if: matrix.os == 'windows-latest'
+              run: |
+                  # Install Strawberry Perl for OpenSSL compilation
+                  choco install strawberryperl -y
+                  # Refresh environment variables
+                  refreshenv
+              shell: cmd
+
+            - name: Install cross
+              if: matrix.use-cross
+              run: |
+                  cargo install cross --git https://github.com/cross-rs/cross
+
+            - name: Set up cargo command
+              run: |
+                  if [ "${{ matrix.use-cross }}" = "true" ]; then
+                    echo "CARGO_CMD=cross" >> $GITHUB_ENV
+                  else
+                    echo "CARGO_CMD=cargo" >> $GITHUB_ENV
+                  fi
+              shell: bash
+
+            - name: Build release binary
+              env:
+                  # For Windows and macOS builds, disable vendored OpenSSL to use system libraries
+                  OPENSSL_NO_VENDOR: ${{ (matrix.os == 'windows-latest' || matrix.os == 'macos-latest') && 1 || '' }}
+              run: |
+                  # Different approaches for different platforms
+                  if [ "${{ matrix.os }}" = "windows-latest" ]; then
+                    # Windows approach from c0a84af - no --locked, no vendored features, use system OpenSSL
+                    ${{ env.CARGO_CMD }} build --release --target ${{ matrix.target }} --package semantic-search-cli
+                  elif [ "${{ matrix.os }}" = "macos-latest" ]; then
+                    # macOS approach - use system OpenSSL to avoid cross-compilation issues
+                    ${{ env.CARGO_CMD }} build --locked --release --target ${{ matrix.target }} --package semantic-search-cli
+                  else
+                    # Linux approach from 4cf1a9b - keep working approach unchanged
+                    if [ "${{ matrix.target }}" = "x86_64-pc-windows-gnu" ]; then
+                      ${{ env.CARGO_CMD }} build --locked --release --target ${{ matrix.target }} --package semantic-search-cli
+                    else
+                      ${{ env.CARGO_CMD }} build --locked --release --target ${{ matrix.target }} --package semantic-search-cli --features=openssl/vendored
+                    fi
+                  fi
+              shell: bash
+
+            - name: Strip binary (Linux and macOS)
+              if: matrix.os != 'windows-latest'
+              run: |
+                  if [ "${{ matrix.os }}" = "macos-latest" ]; then
+                    strip target/${{ matrix.target }}/release/semantic-search-cli
+                  elif [ "${{ matrix.use-cross }}" != "true" ]; then
+                    strip target/${{ matrix.target }}/release/semantic-search-cli
+                  fi
+
+            - name: Sign macOS binary (ad-hoc)
+              if: matrix.os == 'macos-latest'
+              run: |
+                  # Ad-hoc code signing to avoid Gatekeeper warnings
+                  codesign --force --sign - target/${{ matrix.target }}/release/semantic-search-cli
+
+            - name: Determine archive name
+              run: |
+                  version="${{ github.ref_name }}"
+                  echo "ARCHIVE_NAME=semantic-search-cli-${version}-${{ matrix.target }}" >> $GITHUB_ENV
+              shell: bash
+
+            - name: Create archive (Windows)
+              if: matrix.os == 'windows-latest'
+              run: |
+                  mkdir dist
+                  cp target/${{ matrix.target }}/release/semantic-search-cli.exe dist/
+                  cp README.md LICENSE dist/ 2>/dev/null || true
+                  cd dist
+                  7z a ../${{ env.ARCHIVE_NAME }}.zip *
+              shell: bash
+
+            - name: Create archive (Unix)
+              if: matrix.os != 'windows-latest'
+              run: |
+                  mkdir dist
+                  cp target/${{ matrix.target }}/release/semantic-search-cli dist/
+                  cp README.md LICENSE dist/ 2>/dev/null || true
+                  tar czf ${{ env.ARCHIVE_NAME }}.tar.gz -C dist .
+
+            - name: Generate SHA256
+              run: |
+                  if [ "${{ matrix.os }}" = "windows-latest" ]; then
+                    certutil -hashfile ${{ env.ARCHIVE_NAME }}.zip SHA256 > ${{ env.ARCHIVE_NAME }}.zip.sha256
+                  else
+                    if [ "${{ matrix.os }}" = "macos-latest" ]; then
+                      shasum -a 256 ${{ env.ARCHIVE_NAME }}.tar.gz > ${{ env.ARCHIVE_NAME }}.tar.gz.sha256
+                    else
+                      sha256sum ${{ env.ARCHIVE_NAME }}.tar.gz > ${{ env.ARCHIVE_NAME }}.tar.gz.sha256
+                    fi
+                  fi
+              shell: bash
+
+            - name: Upload release archive
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  if [ "${{ matrix.os }}" = "windows-latest" ]; then
+                    gh release upload "${{ github.ref_name }}" ${{ env.ARCHIVE_NAME }}.zip ${{ env.ARCHIVE_NAME }}.zip.sha256 --clobber
+                  else
+                    gh release upload "${{ github.ref_name }}" ${{ env.ARCHIVE_NAME }}.tar.gz ${{ env.ARCHIVE_NAME }}.tar.gz.sha256 --clobber
+                  fi
+              shell: bash
+
+    publish-crates:
+        name: Publish to crates.io
+        needs: build-release
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@stable
+
+            - name: Publish crates
+              env:
+                  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+              run: |
+                  # Function to publish with retries and verification
+                  publish_crate() {
+                    local package=$1
+                    local max_attempts=5
+                    local wait_time=30
+
+                    echo "Publishing $package..."
+
+                    for attempt in $(seq 1 $max_attempts); do
+                      echo "Attempt $attempt/$max_attempts for $package"
+
+                      # Try to publish
+                      if cargo publish -p "$package" --token "$CARGO_REGISTRY_TOKEN" 2>&1 | tee /tmp/publish_output.txt; then
+                        echo "Successfully published $package"
+                        return 0
+                      fi
+
+                      # Check if it's already published
+                      if grep -q "already uploaded" /tmp/publish_output.txt || \
+                         grep -q "already exists" /tmp/publish_output.txt; then
+                        echo "$package is already published, continuing..."
+                        return 0
+                      fi
+
+                      # If it failed due to missing dependency, wait longer
+                      if grep -q "failed to select a version" /tmp/publish_output.txt; then
+                        echo "Dependency not yet available, waiting ${wait_time}s before retry..."
+                        sleep $wait_time
+                        # Increase wait time for subsequent attempts
+                        wait_time=$((wait_time * 2))
+                      else
+                        # For other errors, fail immediately
+                        echo "Publishing $package failed with unexpected error"
+                        cat /tmp/publish_output.txt
+                        return 1
+                      fi
+                    done
+
+                    echo "Failed to publish $package after $max_attempts attempts"
+                    return 1
+                  }
+
+                  # Function to verify crate is available on crates.io
+                  verify_crate() {
+                    local package=$1
+                    local version=$2
+                    local max_attempts=20
+                    local wait_time=30
+                    local url="https://crates.io/api/v1/crates/${package}/${version}"
+
+                    echo "Verifying $package v$version is available on crates.io..."
+
+                    for attempt in $(seq 1 $max_attempts); do
+                      if curl --silent --show-error --fail "$url" >/dev/null; then
+                        echo "$package v$version verified on crates.io"
+                        return 0
+                      fi
+
+                      echo "Waiting for $package v$version to be available (attempt $attempt/$max_attempts)..."
+                      sleep $wait_time
+                    done
+
+                    echo "Failed to verify $package v$version on crates.io"
+                    curl --silent --show-error "$url" || true
+                    return 1
+                  }
+
+                  # Get version from workspace Cargo.toml
+                  VERSION=$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+                  echo "Publishing version $VERSION"
+
+                  # Publish in dependency order with verification
+                  CRATES=(
+                    "semantic-search-cli"
+                  )
+
+                  for crate in "${CRATES[@]}"; do
+                    if ! publish_crate "$crate"; then
+                      echo "Failed to publish $crate, aborting..."
+                      exit 1
+                    fi
+
+                    # Verify the crate is available before proceeding to dependents
+                    if ! verify_crate "$crate" "$VERSION"; then
+                      echo "Failed to verify $crate, aborting..."
+                      exit 1
+                    fi
+                  done
+
+                  echo "All crates published successfully!"
+
+    finalize-release:
+        name: Finalize GitHub Release
+        needs: [build-release, publish-crates]
+        runs-on: ubuntu-latest
+        if: always() && needs.build-release.result == 'success'
+        steps:
+            - name: Publish release
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  gh release edit "${{ github.ref_name }}" --draft=false --repo=${{ github.repository }}

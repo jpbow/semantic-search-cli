@@ -1083,31 +1083,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "file-crawler"
-version = "0.1.0"
-dependencies = [
- "clap",
- "colored",
- "console",
- "dialoguer",
- "dotenv",
- "fastembed",
- "indicatif",
- "markitdown",
- "md5",
- "qdrant-client",
- "regex",
- "reqwest 0.11.27",
- "serde",
- "serde_json",
- "tabled",
- "text-splitter",
- "tokio",
- "uuid",
- "walkdir",
-]
-
-[[package]]
 name = "filetime"
 version = "0.2.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3636,6 +3611,31 @@ checksum = "cc1f0cbffaac4852523ce30d8bd3c5cdc873501d96ff467ca09b6767bb8cd5c0"
 dependencies = [
  "core-foundation-sys",
  "libc",
+]
+
+[[package]]
+name = "semantic-search-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "colored",
+ "console",
+ "dialoguer",
+ "dotenv",
+ "fastembed",
+ "indicatif",
+ "markitdown",
+ "md5",
+ "qdrant-client",
+ "regex",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_json",
+ "tabled",
+ "text-splitter",
+ "tokio",
+ "uuid",
+ "walkdir",
 ]
 
 [[package]]
