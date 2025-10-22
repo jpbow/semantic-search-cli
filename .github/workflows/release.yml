@@ -118,9 +118,9 @@ jobs:
               shell: bash
 
             - name: Build release binary
-              env:
-                  # For Windows and macOS builds, disable vendored OpenSSL to use system libraries
-                  OPENSSL_NO_VENDOR: ${{ (matrix.os == 'windows-latest' || matrix.os == 'macos-latest') && 1 || '' }}
+              #   env:
+              #       # For Windows and macOS builds, disable vendored OpenSSL to use system libraries
+              #       OPENSSL_NO_VENDOR: ${{ (matrix.os == 'windows-latest' || matrix.os == 'macos-latest') && 1 || '' }}
               run: |
                   # Different approaches for different platforms
                   if [ "${{ matrix.os }}" = "windows-latest" ]; then
