@@ -190,9 +190,7 @@ impl CliUI {
     /// Print a completion message with celebration
     pub fn print_completion(&self, message: &str) {
         println!();
-        println!("{}", "🎉".repeat(20).bright_green());
-        println!("{}", message.bright_green().bold());
-        println!("{}", "🎉".repeat(20).bright_green());
+        println!("🎉 {}", message.bright_green().bold());
         println!();
     }
 

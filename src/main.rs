@@ -292,7 +292,10 @@ async fn main() {
     ui.print_section("Initializing AI Models");
     let init_spinner = ui.show_loading("Loading embedding models...");
 
-    let qdrant_url = env::var("QDRANT_URL").unwrap_or("http://localhost:6334".to_string());
+    let qdrant_url = env::var("QDRANT_URL").unwrap_or_else(|_| {
+        ui.print_error("Error! Expected QDRANT_URL to be set in .env");
+        std::process::exit(1);
+    });
 
     // Initialize Qdrant client
     let vector_store = match qdrant_client::QdrantVectorStore::new(&qdrant_url).await {
